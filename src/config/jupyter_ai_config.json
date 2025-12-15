@@ -1,0 +1,18 @@
+{
+    "model_provider_id": "ollama:llama3.1:latest",
+    "embeddings_provider_id": "ollama:nomic-embed-text:latest",
+    "send_with_shift_enter": false,
+    "fields": {
+        "ollama:llama3.1:latest": {
+            "base_url": "http://ollama-service.ollama.svc.cluster.local:11434"
+        }
+    },
+    "api_keys": {},
+    "completions_model_provider_id": null,
+    "completions_fields": {},
+    "embeddings_fields": {
+        "ollama:nomic-embed-text:latest": {
+            "base_url": "http://ollama-service.ollama.svc.cluster.local:11434"
+        }
+    }
+}

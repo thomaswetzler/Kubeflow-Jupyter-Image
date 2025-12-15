@@ -1,0 +1,16 @@
+{
+  "snippets": [
+    {
+      "id": 0,
+      "name": "AI: Text nach Deutsch übersetzen",
+      "description": "Verwendet %%ai, um ausgewählten Text nach Deutsch zu übersetzen.",
+      "language": "python",
+      "code": [
+        "%%ai",
+        "Translate the following text into German, keep technical terms unchanged:",
+        "{{selection}}"
+      ],
+      "tags": ["ai", "translation", "de"]
+    }
+  ]
+}

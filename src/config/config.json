@@ -1,0 +1,9 @@
+{
+  "model_provider_id": "ollama:qwen2.5-coder:1.5b",
+  "embeddings_provider_id": null,
+  "send_with_shift_enter": true,
+  "fields": {},
+  "api_keys": {},
+  "completions_model_provider_id": "ollama:llama3.1:latest",
+  "completions_fields": {}
+}

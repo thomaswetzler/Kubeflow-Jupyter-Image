@@ -1,0 +1,141 @@
+# Python 3.12 Image Tag - see https://github.com/jupyter/docker-stacks#using-old-images
+FROM quay.io/jupyter/base-notebook:2025-08-11 
+
+USER root
+
+# ----------------------------------------------------------------------
+# Install S6-Overlay (as in Kubeflow images, but on base-notebook)
+# ----------------------------------------------------------------------
+ARG S6_VERSION=v3.2.0.0
+
+# Install xz tools to support 'tar -J'
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends xz-utils && \
+    rm -rf /var/lib/apt/lists/*
+
+# ADD https://github.com/just-containers/s6-overlay/releases/download/${S6_VERSION}/s6-overlay-noarch.tar.xz /tmp/
+# ADD https://github.com/just-containers/s6-overlay/releases/download/${S6_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
+COPY config/s6-overlay-noarch.tar.xz /tmp/
+COPY config/s6-overlay-x86_64.tar.xz /tmp/
+
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
+    tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz && \
+    rm -f /tmp/s6-overlay-*.tar.xz
+
+ENTRYPOINT ["/init"]
+
+# s6 should fail hard if stage2 fails
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+
+# Create S6 service directory
+RUN mkdir -p /etc/services.d/jupyterlab
+COPY config/jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
+
+# Copy your external script into it
+COPY config/s6_overlay.sh /etc/services.d/jupyterlab/run
+RUN chmod +x /etc/services.d/jupyterlab/run \
+    && chown -R ${NB_USER}:${NB_GID} /etc/services.d/jupyterlab
+
+# Build tools for pip installs, tooling, etc.
+ENV PIP_NO_BUILD_ISOLATION=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        tzdata \
+        curl \
+        wget \
+        unzip \
+        bzip2 \
+        zsh \
+        htop ;\
+    rm -rf /var/lib/apt/lists/* ; \
+    pip install --no-cache-dir --upgrade pip ; \
+    pip install --no-cache-dir --upgrade \
+        jupyterlab-spreadsheet-editor \
+        "jupyter-ai[all]"; \
+    rm -rf /var/lib/apt/lists/* /root/.cache /tmp/pip-*;
+
+# Install extensions for JupyterLab with conda/mamba
+RUN mamba install -y \
+      ipython-sql \
+      jupyterlab-git \
+      jupyterlab-lsp \
+      jupyter-lsp-python \
+      python-lsp-server \
+      jupyterlab_rise \
+      nb_conda_kernels \
+      jupyter-resource-usage \
+      psutil \
+ && mamba clean -afy
+
+# ------------------------------------------------------------------------------
+# Python 3.12 environment + register Jupyter kernel
+# ------------------------------------------------------------------------------
+
+# 1) Create Conda/Mamba env py312 with Python 3.12 + ipykernel
+RUN set -eux; \
+    mamba create -y -n py312 -c conda-forge python=3.12 ipykernel && \
+    mamba clean -a -y
+
+# 2) Register kernel for this env globally
+#    IMPORTANT: no --user, use --prefix to a global directory
+RUN set -eux; \
+    /opt/conda/envs/py312/bin/python -m ipykernel install \
+      --name py312 \
+      --display-name "Python 3.12 (py312)" \
+      --prefix /usr/local/share/jupyter
+
+# ------------------------------------------------------------------------------
+# Python 3.10 environment + register Jupyter kernel
+# ------------------------------------------------------------------------------
+RUN mamba create -y -n py310 -c conda-forge python=3.10 ipykernel && \
+    mamba clean -afy
+
+RUN set -eux; \
+    /opt/conda/envs/py310/bin/python -m ipykernel install \
+      --name py310 \
+      --display-name "Python 3.10 (py310)" \
+      --prefix /usr/local/share/jupyter
+
+# ------------------------------------------------------------------------------
+# Python 3.13 environment + register Jupyter kernel
+# ------------------------------------------------------------------------------
+RUN mamba create -y -n py313 -c conda-forge python=3.13 ipykernel && \
+    mamba clean -afy
+
+RUN set -eux; \
+    /opt/conda/envs/py313/bin/python -m ipykernel install \
+      --name py313 \
+      --display-name "Python 3.13 (py313)" \
+      --prefix /usr/local/share/jupyter
+
+# Environment Variables for shell
+ENV OLLAMA_BASE_URL="http://ollama-service.ollama.svc.cluster.local:11434" \
+    S3_BASE_URL="http://minio.k3s.linos.dedyn.io:9000" \
+    POSTGRES_HOST="postgres.postgres.svc.cluster.local"
+
+# Jupyter AI config for Ollama
+# Place default Jupyter-AI config inside the image (not under /home/jovyan!)
+RUN mkdir -p /opt/jupyter-ai-default
+COPY config/jupyter_ai_config.json /opt/jupyter-ai-default/config.json
+# Register s6 cont-init script to copy after home is mounted
+RUN mkdir -p /etc/cont-init.d
+COPY config/10-jupyter-ai-config.sh /etc/cont-init.d/10-jupyter-ai-config.sh
+RUN chmod +x /etc/cont-init.d/10-jupyter-ai-config.sh \
+ && sed -i 's/\r$//' /etc/cont-init.d/10-jupyter-ai-config.sh
+
+# Automatically load Jupyter-AI magics and set default model - should remain changeable
+RUN mkdir -p /opt/ipython-default
+COPY config/ipython_config.py /opt/ipython-default/ipython_config.py
+# Register s6 cont-init script to copy after home is mounted
+RUN mkdir -p /etc/cont-init.d
+COPY config/10-ipython-seed.sh /etc/cont-init.d/10-ipython-seed.sh
+RUN chmod +x /etc/cont-init.d/10-ipython-seed.sh \
+ && sed -i 's/\r$//' /etc/cont-init.d/10-ipython-seed.sh
+
+# Ensure the entire home directory belongs to NB_USER
+RUN chown -R ${NB_USER}:${NB_GID} /home/${NB_USER}
+
+# Finally switch back to the default user
+USER ${NB_USER}
